@@ -40,188 +40,39 @@ class ClfModel(nn.Module):
       def __init__(self, args):
             super().__init__()
 
+            self.load_model = args.load_model
 
-            if args.rep_model == "bert":
-                rep_model_name = 'bert-large-uncased'
-            elif args.rep_model == "bert-small":
-                rep_model_name = 'bert-base-uncased'
-            elif args.rep_model == "roberta":
-                rep_model_name = 'roberta-large'
-            elif args.rep_model == "roberta-mnli":
-                rep_model_name = 'roberta-large-mnli'
-            elif args.rep_model == "roberta-small":
-                rep_model_name = 'roberta-base'
-            elif args.rep_model == "bart":
-                rep_model_name = 'facebook/bart-large'
-            elif args.rep_model == "t5":
-                rep_model_name = 't5-base'
-            elif args.rep_model == "distillbert":
-                rep_model_name = 'distilbert-base-uncased'
-            elif args.rep_model == "distillroberta":
-                rep_model_name = "distilroberta-base"
-            elif args.rep_model == "longformer":
-                rep_model_name = "allenai/longformer-base-4096"
-            elif args.rep_model == "albert":
-                rep_model_name = 'albert-base-v1'
-            elif args.rep_model == "albertv2":
-                rep_model_name = 'albert-base-v2'
-            elif args.rep_model == "albert-large":
-                rep_model_name = 'albert-xlarge-v1'
-            elif args.rep_model == "xlnet-small":
-                rep_model_name = 'xlnet-base-cased'
-            elif args.rep_model == "xlnet":
-                rep_model_name = 'xlnet-large-cased'
-            elif args.rep_model == "deberta":
-                rep_model_name = 'microsoft/deberta-base'
-            elif args.rep_model == "gpt2":
-                rep_model_name = 'gpt2-medium'
+            if "xlnet" in args.rep_model:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.load_model)
+                self.model = XLNetLMHeadModel.from_pretrained(self.load_model, mem_len=1024).to(args.device)
             else:
-                rep_model_name = 'gpt2'
-
-            if args.rank_model == "bert":
-                rank_model_name = 'bert-large-uncased'
-            else: rank_model_name = 'gpt2'
-            self.rep_name = args.rep_model
-
-            if args.rep_model == "deberta":
-                self.rep_tokenizer = DebertaTokenizer.from_pretrained(rep_model_name)
-                self.rep_model = DebertaModel.from_pretrained(rep_model_name).to(args.device)
-            elif "xlnet" in args.rep_model:
-                self.rep_tokenizer = AutoTokenizer.from_pretrained(rep_model_name)
-                self.rep_model = XLNetLMHeadModel.from_pretrained(rep_model_name, mem_len=1024).to(args.device)
-            else:
-                self.rep_tokenizer = AutoTokenizer.from_pretrained(args.load_model\
-                                                                   if rep_model_name=="gpt" and args.load_ft_gpt
-                                                                   else rep_model_name)
-
-
-                config = AutoConfig.from_pretrained(args.load_model \
-                                                    if rep_model_name=="gpt" and args.load_ft_gpt
-                                                    else rep_model_name)
-                # config.return_dict = True
+                self.tokenizer = AutoTokenizer.from_pretrained(self.load_model)
+                config = AutoConfig.from_pretrained(self.load_model)
                 config.output_hidden_states = True
-                print(config)
-                self.rep_model = AutoModelWithLMHead.from_pretrained(args.load_model \
-                                                       if rep_model_name=="gpt" and args.load_ft_gpt
-                                                       else rep_model_name, config=config).to(args.device)
+                self.model = AutoModelWithLMHead.from_pretrained(self.load_model, config=config).to(args.device)
 
-            self.rank_name = args.rank_model
-            self.rank_tokenizer = AutoTokenizer.from_pretrained(rank_model_name)
-            self.rank_model = AutoModelWithLMHead.from_pretrained(rank_model_name).to(args.device)
 
-            self.dropout = torch.nn.Dropout(0.2)
-            hidden_size = 1024 if "large" in rep_model_name or rep_model_name=="gpt2-medium" else 768
-            if args.mode == 1:
-                self.hidden2label = nn.Linear(hidden_size, 2).to(args.device)
-            elif args.mode == 2:
-                self.hidden2label = nn.Sequential(
-                                        nn.Linear(hidden_size, hidden_size//2),
-                                        nn.Sigmoid(),
-                                        nn.Linear(hidden_size//2, 2)).to(args.device)
+            hidden_size = 1024 if "large" in self.load_model or self.load_model=="gpt2-medium" else 768
+
+            self.hidden2label = nn.Sequential(
+                                    nn.Linear(hidden_size, hidden_size//2),
+                                    nn.Sigmoid(),
+                                    nn.Linear(hidden_size//2, 2)).to(args.device)
             self.dropout = torch.nn.Dropout(args.dropout)
             self.layer = args.bert_layer
-            self.bert_mask = args.bert_mask
 
-            self.eval()
             self.eval()
             self.device = args.device
             self.args = args
 
-      def encode_bert(self, src_sen, rep_sen, src_ids, rep_ids):
-            rep_tokens = rep_sen.strip().split()
-            rep_start_id, rep_end_id = rep_ids
-            assert rep_tokens[rep_start_id].startswith("===") and \
-                   rep_tokens[rep_end_id].endswith("===")
-            rep_tokens[rep_start_id] = rep_tokens[rep_start_id][3:]
-            rep_tokens[rep_end_id] = rep_tokens[rep_end_id][:-3]
-
-            #  Prob, Entropy features
-            rep_subtokens = ["[CLS]"]
-            tokenizer = self.rep_tokenizer
-            model = self.rep_model
-            rep_mask_start_id, rep_mask_end_id = 0, 0
-            for id, rep_token in enumerate(rep_tokens):
-                rep_subtoken = tokenizer.tokenize(rep_token)
-                if id == rep_start_id:
-                    rep_mask_start_id = len(rep_subtokens)
-                if id == rep_end_id:
-                    rep_mask_end_id = len(rep_subtokens) + len(rep_subtoken)
-
-                if id >= rep_start_id and id <= rep_end_id:
-                    rep_subtokens.extend(len(rep_subtoken) * ["[MASK]"])
-                else:
-                    rep_subtokens.extend(rep_subtoken)
-            rep_subtokens.append("[SEP]")
-            rep_input_ids = torch.LongTensor(tokenizer.convert_tokens_to_ids(rep_subtokens)).unsqueeze(0).to(self.device)
-            # print("rep_input_ids {}".format(rep_input_ids.size()))
-            prediction_scores = model(rep_input_ids)[0]
-            prediction_scores = F.softmax(prediction_scores, dim=-1)
-            # print("prediction_scores {}".format(prediction_scores.size()))
-            # print("mask_start {}  mask_end {}".format(rep_mask_start_id, rep_mask_end_id))
-
-            scores = []
-            for id in range(rep_mask_start_id, rep_mask_end_id):
-                subtoken_score = prediction_scores[0, id, rep_input_ids[0][id]].item()
-                scores.append(subtoken_score)
-
-            entropies = []
-            for id in range(rep_mask_start_id, rep_mask_end_id):
-                vocab_scores = prediction_scores[0, id].detach().cpu().numpy()
-                entropy = np.sum(np.log(vocab_scores+1e-11) * vocab_scores)
-                entropies.append(-entropy)
-
-            return sum(scores)/len(scores), max(scores), \
-                   sum(entropies)/len(entropies), max(entropies)
-
-      def encode_gpt(self, src_sen, rep_sen, src_ids, rep_ids):
-            rep_tokens = rep_sen.strip().split()
-            rep_start_id, rep_end_id = rep_ids
-            assert rep_tokens[rep_start_id].startswith("===") and \
-                   rep_tokens[rep_end_id].endswith("===")
-            rep_tokens[rep_start_id] = rep_tokens[rep_start_id][3:]
-            rep_tokens[rep_end_id] = rep_tokens[rep_end_id][:-3]
-            rep_subtokens = []
-            tokenizer = self.rep_tokenizer
-            model = self.rep_model
-            rep_mask_start_id, rep_mask_end_id = 0, 0
-            for id, rep_token in enumerate(rep_tokens):
-                rep_token = " "+rep_token if id!=0 else rep_token
-                rep_subtoken = tokenizer.tokenize(rep_token)
-                if id == rep_start_id:
-                    rep_mask_start_id = len(rep_subtokens)
-                if id == rep_end_id:
-                    rep_mask_end_id = len(rep_subtokens) + len(rep_subtoken)
-
-                rep_subtokens.extend(rep_subtoken)
-
-            rep_input_ids = torch.LongTensor(tokenizer.convert_tokens_to_ids(rep_subtokens)).unsqueeze(0).to(self.device)
-            # print("rep_input_ids {}".format(rep_input_ids.size()))
-            prediction_scores = model(rep_input_ids)[0]
-            prediction_scores = F.softmax(prediction_scores, dim=-1)
-            # print("prediction_scores {}".format(prediction_scores.size()))
-            # print("mask_start {}  mask_end {}".format(rep_mask_start_id, rep_mask_end_id))
-
-            scores = []
-            for id in range(rep_mask_start_id, rep_mask_end_id):
-                subtoken_score = prediction_scores[0, id, rep_input_ids[0][id]].item()
-                scores.append(subtoken_score)
-
-            entropies = []
-            for id in range(rep_mask_start_id, rep_mask_end_id):
-                vocab_scores = prediction_scores[0, id].detach().cpu().numpy()
-                entropy = np.sum(np.log(vocab_scores+1e-11) * vocab_scores)
-                entropies.append(-entropy)
-
-            return sum(scores)/len(scores), max(scores), \
-                   sum(entropies)/len(entropies), max(entropies)
 
       def bert_run(self, optim, trainpath="../data_collections/Wiki-Hades/train.txt",
                    testpath="../data_collections/Wiki-Hades/test.txt",
                    validpath="../data_collections/Wiki-Hades/valid.txt",
                    epoch=10):
               # testpath="selected_replaced_instance.annotate.finish", epoch=10):
-            prefix = "runs/{}_{}_lr_{}_dp_{}_mode{}_{}_clen{}/".format(self.rep_name, self.args.name, self.args.lr,
-                                            self.args.dropout, self.args.mode, self.args.task_mode, self.args.clen)
+            prefix = "runs/{}_lr_{}_dp_{}_{}_clen{}/".format(self.load_model, self.args.lr,
+                                            self.args.dropout, self.args.task_mode, self.args.clen)
             bestmodelpath = prefix + "best_model.pt"
             epoch_start = 1
             if os.path.exists(bestmodelpath) and self.args.continue_train:
@@ -230,27 +81,23 @@ class ClfModel(nn.Module):
                 epoch_start = checkpoint["epoch"] + 1
 
             writer = SummaryWriter(prefix)
-            csvlogger = prefix + "log.csv"
-            txtlogger = prefix + "test_log.txt"
-            txtwriter = codecs.open(txtlogger, "w+")
-            vtxtlogger = prefix + "valid_log.txt"
-            vtxtwriter = codecs.open(vtxtlogger, "w+")
+            csvlogger = prefix + "valid_log.csv"
 
             if not os.path.exists(csvlogger):
                 csvfile = open(csvlogger, 'w+')
-                fileHeader = ["epoch", "H_p", "H_r", "H_f1", "H_gmean", "C_p", "C_r", "C_f1", "C_gmean",
-                              "Acc", "BSS", "ROC_AUC", "AP_AUC"]
-                csvwrite = csv.writer(csvfile)
-                csvwrite.writerow(fileHeader)
+                fileHeader = ["epoch", "H_p", "H_r", "H_f1", "C_p", "C_r", "C_f1", "Gmean",
+                              "Acc", "BSS", "ROC_AUC"]
+                csvwriter = csv.writer(csvfile)
+                csvwriter.writerow(fileHeader)
             else:
                 csvfile = open(csvlogger, 'a')
-                csvwrite = csv.writer(csvfile)
+                csvwriter = csv.writer(csvfile)
 
             dp = DataProcessor()
             train_examples = dp.get_examples(trainpath)
 
-            train_dataset = HalluDataset(train_examples, self.rep_tokenizer, self.args.clen,
-                                         self.rep_name, self.args.task_mode)
+            train_dataset = HalluDataset(train_examples, self.tokenizer, self.args.clen,
+                                         self.load_model, self.args.task_mode)
 
             train_dataloader = data.DataLoader(dataset=train_dataset,
                                                batch_size=8,
@@ -258,21 +105,23 @@ class ClfModel(nn.Module):
                                                num_workers=4,
                                                collate_fn=HalluDataset.pad)
             nSamples = dp.get_label_dist()
+            nTrain = sum(nSamples)
             print("====Train label : {}".format(nSamples))
             normedWeights = [1 - (x / sum(nSamples)) for x in nSamples]
 
+            '''
             test_examples = dp.get_examples(testpath)
-            test_dataset = HalluDataset(test_examples, self.rep_tokenizer, self.args.clen,
-                                        self.rep_name, self.args.task_mode)
+            test_dataset = HalluDataset(test_examples, self.tokenizer, self.args.clen,
+                                        self.load_model, self.args.task_mode)
             test_dataloader = data.DataLoader(dataset=test_dataset,
                                                batch_size=4,
                                                shuffle=False,
                                                num_workers=4,
                                                collate_fn=HalluDataset.pad)
-
+            '''
             valid_examples = dp.get_examples(validpath)
-            valid_dataset = HalluDataset(valid_examples, self.rep_tokenizer, self.args.clen,
-                                         self.rep_name, self.args.task_mode)
+            valid_dataset = HalluDataset(valid_examples, self.tokenizer, self.args.clen,
+                                         self.load_model, self.args.task_mode)
             valid_dataloader = data.DataLoader(dataset=valid_dataset,
                                                batch_size=4,
                                                shuffle=False,
@@ -281,10 +130,9 @@ class ClfModel(nn.Module):
 
             normedWeights = torch.FloatTensor(normedWeights).to(self.args.device)
             loss_func = nn.CrossEntropyLoss(weight=normedWeights).to(self.args.device)
-            # loss_func = nn.CrossEntropyLoss().to(self.args.device)
-            fwd_func = self.bert_train # if "gpt" not in self.args.rep_model else self.gpt_train
-            best_acc = -1
-            best_f1_score = -1
+
+            fwd_func = self.bert_train
+            best_acc, best_f1_score = -1, -1
             for ei in range(epoch_start, epoch+1):
                 cnt = 0
                 self.train()
@@ -303,14 +151,13 @@ class ClfModel(nn.Module):
                     predy.extend(pred.tolist())
                     hallu_sm_score.extend(hallu_sm.tolist())
                     loss = loss_func(score, label_ids)
-                    # print(loss)
                     train_loss += loss.item()
                     optim.zero_grad()
                     loss.backward()
                     optim.step()
                     cnt += 1
                     if cnt % 10 == 0:
-                        print("Training Epoch {} - {} - {}".format(ei, cnt, train_loss/cnt))
+                        print("Training Epoch {} - {}% - {}".format(ei, int(100 * cnt/nTrain), train_loss/cnt))
                 print("Training Epoch {} ...".format(ei))
                 # print(predy)
                 acc, (f1, precision, recall, gmean), (bss, roc_auc, ap_auc), _ = \
@@ -422,111 +269,19 @@ class ClfModel(nn.Module):
                             break
                         cnt += 1
 
-            '''
-            checkpoint = torch.load("runs/enrich_bert_lr_{}_dp{}".format(self.args.lr, self.args.dropout))
-            self.rep_model.load_state_dict(checkpoint["model_state_dict"])
-            self.rep_model.eval()
-            fwname = unannotatedpath + ".modelscore"
-            with codecs.open(fwname, "w+", encoding="utf-8") as fw:
-                pass
-            '''
-
-      def sent_hallu_vis(self, sen, modelpath="runs/datam4424_lr_0.005_dp0.2/model_9_0.5991348233597694_0.8169245966414226.pt"):
-            checkpoint = torch.load(modelpath)
-            tsen, rep_pos = sent_ner_bounds(sen, self.nlp)
-            print("tsen {} rep_pos {}".format(len(tsen), len(rep_pos)))
-            examples = get_examples_from_sen_tuple(tsen, rep_pos)
-            print("len of example {}".format(len(examples)))
-            # examples = examples[30:]
-            print(examples[0].idxs)
-            print(examples[0].sen)
-            print(len(examples))
-            unannotated_dataset = HalluDataset(examples, self.rep_tokenizer, 200, self.rep_name)
-            print(unannotated_dataset[0])
-            print(len(unannotated_dataset))
-            unannotated_dataloader = data.DataLoader(dataset=unannotated_dataset,
-                                                       batch_size=8,
-                                                       shuffle=False,
-                                                       num_workers=4,
-                                                       collate_fn=HalluDataset.pad)
-            self.load_state_dict(checkpoint["model_state_dict"])
-            self.eval()
-            fwd_func = self.bert_train if "gpt" not in self.args.rep_model else self.gpt_train
-            hallu_scores = []
-            cnt = 0
-            for _, batch in enumerate(unannotated_dataloader):
-                input_ids, input_mask, segment_ids, predict_mask, label_ids, guids = batch
-                batch = tuple(t.to(self.device) for t in batch[:-1])
-                print("id {} mask {} segment {}, pmask {}, label {}".format(input_ids.size(), input_mask.size(),
-                                                            segment_ids.size(), predict_mask.size(), label_ids.size()))
-                input_ids, input_mask, segment_ids, predict_mask, label_ids = batch
-                score = fwd_func(input_ids, input_mask, segment_ids, predict_mask)
-                score = F.softmax(score, dim=1).tolist()
-                for sc in score:
-                    hallu_scores.append(sc)
-            print(len(rep_pos))
-            print(len(hallu_scores))
-            print(tsen)
-            ttokens = tsen.strip().split()
-            for pos, hallu in zip(rep_pos, hallu_scores):
-                print("{} : {}".format(" ".join(ttokens[pos[0]:pos[1]+1]), hallu[1]))
-
-      def get_model_scores(self, modelpath,
-            unannotatedpath="../data_collections/wiki5k+sequential+topk_10+temp_1+context_1+rep_0.6+sample_1.annotate",
-                           epoch=None):
-            checkpoint = torch.load(modelpath)
-            self.load_state_dict(checkpoint["model_state_dict"])
-            self.eval()
-
-            dp = DataProcessor()
-            unannotated_examples = dp.get_examples(unannotatedpath, require_uidx=True)
-            unannotated_dataset = HalluDataset(unannotated_examples, self.rep_tokenizer, 200, self.rep_name)
-
-            unannotated_dataloader = data.DataLoader(dataset=unannotated_dataset,
-                                                       batch_size=8,
-                                                       shuffle=False,
-                                                       num_workers=4,
-                                                       collate_fn=HalluDataset.pad)
-            fwd_func = self.bert_train if "gpt" not in self.args.rep_model else self.gpt_train
-            pred_dict = {}
-            cnt = 0
-            for step, batch in enumerate(unannotated_dataloader):
-                guids = batch[-1]
-                batch = tuple(t.to(self.device) for t in batch[:-1])
-                input_ids, input_mask, segment_ids, predict_mask, label_ids = batch
-                scores = fwd_func(input_ids, input_mask, segment_ids, predict_mask)
-                scores = F.softmax(scores, dim=1).tolist()
-                for guid, score in zip(guids, scores):
-                    pred_dict[int(guid)] = score
-                if cnt % 10 == 0:
-                    print("Inference - {}".format(cnt*12))
-                cnt += 1
-            pathname = "../data_preparation/wikinn10k+...data_merge_4424_{}_lr{}_dp{}".format(
-                        self.args.name, self.args.lr, self.args.dropout)
-            path = pathname if epoch is None else pathname+"."+str(epoch)
-            fw = codecs.open(path, "w+", encoding="utf-8")
-            # fw = codecs.open("../data_collections/wiki5k+sequential+...+sample_1.data_merge_plus_tianyu_542", "w+", encoding="utf-8")
-            # fw = codecs.open("../data_collections/wiki5k+sequential+...+sample_1.data_merge_plus_tianyu_1786", "w+", encoding="utf-8")
-            with codecs.open(unannotatedpath, 'r', encoding="utf-8") as fr:
-                for entry in fr:
-                    example = json.loads(entry.strip())
-                    score = pred_dict[example["idx"]]
-                    example["consist_model_score"] = score[0]
-                    example["hallu_model_score"] = score[1]
-                    fw.write(json.dumps(example) + "\n")
 
       def bert_train(self, input_ids, input_mask, segment_ids, predict_mask):
             model = self.rep_model
 
-            if self.rep_name == "distillbert":
+            if self.load_model == "distillbert":
                 prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
                 # print(hidden_states.size())
-            elif "deberta" in self.rep_name:
+            elif "deberta" in self.load_model:
                 hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-            elif "xlnet" in self.rep_name:
+            elif "xlnet" in self.load_model:
                 _, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
                 hidden_states = [h.transpose(0, 1) for h in hidden_states]
-            elif "gpt" in self.rep_name:
+            elif "gpt" in self.load_model:
                 _, _, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
             else:
                 prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
@@ -540,7 +295,7 @@ class ClfModel(nn.Module):
             # print(predict_mask.size())
             print("{} hidden_states {}".format(len(hidden_states), hidden_states[-1].size()))
             '''
-            features = hidden_states if "deberta" in self.rep_name else hidden_states[-1]
+            features = hidden_states if "deberta" in self.load_model else hidden_states[-1]
             # show_output_size(features)
             state = features * predict_mask.unsqueeze(-1)
             predict_len = predict_mask.sum(1)
@@ -565,7 +320,7 @@ class ClfModel(nn.Module):
             model = self.rep_model
 
             prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-            features = hidden_states if "deberta" in self.rep_name else hidden_states[-1]
+            features = hidden_states if "deberta" in self.load_model else hidden_states[-1]
             state = features * predict_mask.unsqueeze(-1)
             predict_len = predict_mask.sum(1)
             # print("state {}".format(state.size()))
@@ -585,40 +340,6 @@ class ClfModel(nn.Module):
             # print("score {}".format(score.size()))
             return score
 
-      # def get_word_features(self, data_path="../human_annotation/uhrs_src/data_merge_tag1.txt"):
-
-      def gpt_train(self, src_sen, rep_sen, src_ids, rep_ids):
-            rep_tokens = rep_sen.strip().split()
-            rep_start_id, rep_end_id = rep_ids
-            assert rep_tokens[rep_start_id].startswith("===") and \
-                   rep_tokens[rep_end_id].endswith("===")
-            rep_tokens[rep_start_id] = rep_tokens[rep_start_id][3:]
-            rep_tokens[rep_end_id] = rep_tokens[rep_end_id][:-3]
-            rep_subtokens = []
-            tokenizer = self.rep_tokenizer
-            model = self.rep_model
-            rep_mask_start_id, rep_mask_end_id = 0, 0
-            for id, rep_token in enumerate(rep_tokens):
-                rep_token = " "+rep_token if id!=0 else rep_token
-                rep_subtoken = tokenizer.tokenize(rep_token)
-                if id == rep_start_id:
-                    rep_mask_start_id = len(rep_subtokens)
-                if id == rep_end_id:
-                    rep_mask_end_id = len(rep_subtokens) + len(rep_subtoken)
-
-                rep_subtokens.extend(rep_subtoken)
-
-            rep_input_ids = torch.LongTensor(tokenizer.convert_tokens_to_ids(rep_subtokens)).unsqueeze(0).to(self.device)
-            rets = model(rep_input_ids)
-            hidden_states = rets[-1]
-            # print("{} hidden_states {}".format(len(hidden_states), hidden_states[-1].size()))
-
-            meanpool_state = torch.mean(hidden_states[self.layer][0][rep_mask_start_id:rep_mask_end_id], dim=0)
-            meanpool_state = self.dropout(meanpool_state)
-
-            score = self.hidden2label(meanpool_state)
-            # print("score {}".format(score.size()))
-            return score.unsqueeze(0)
 
 
 if __name__ == '__main__':
@@ -640,7 +361,7 @@ if __name__ == '__main__':
     parser.add_argument("--params", default="map", type=str)
 
     parser.add_argument("--load_ft_gpt", action="store_true")
-    parser.add_argument("--load_model", default="../finetune_learn/output", type=str)
+    parser.add_argument("--finetune_from", default="../finetune_learn/output", type=str)
     parser.add_argument("--rep_model", default="bert", type=str)
 
     parser.add_argument("--context_len", default=1, type=int)

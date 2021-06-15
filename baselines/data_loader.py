@@ -29,6 +29,9 @@ class InputFeatures(object):
 
 
 class DataProcessor(object):
+    def __init__(self):
+        self.num_consist = 0
+        self.num_hallu = 0
 
     def _read_data(self, input_file, require_uidx=False):
         with open(input_file) as f:
@@ -62,6 +65,11 @@ class DataProcessor(object):
             else:
                 assert len(one_lists) == 3 or len(one_lists) == 4
 
+            if label == 0:
+                self.num_consist += 1
+            elif label == 1:
+                self.num_hallu += 1
+
             examples.append(InputExample(
                 guid=guid, sen=sen, idxs=token_ids, label=label))
         return examples
@@ -70,6 +78,8 @@ class DataProcessor(object):
         return self._create_examples(
             self._read_data(path, require_uidx))
 
+    def get_label_dist(self):
+        return [self.num_consist, self.num_hallu]
 
 def truncate(rep_subtokens, predict_mask, max_seq_length, rep_start_id, rep_end_id, mode="offline"):
     '''
