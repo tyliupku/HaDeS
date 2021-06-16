@@ -48,7 +48,7 @@ For feature-based models (can only be used in the offline test mode):
 ```
 python feature_clf.py --mode svm
 ```
-```mode``` can be ```svm``` or ```lr``` (logistic regression).
+```mode``` can be ```svm``` (support vector machine) or ```lr``` (logistic regression). The features we use include word probability, TF-IDF, PPMI and word entrophy.
 
 ## Citation
 
