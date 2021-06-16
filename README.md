@@ -1,6 +1,6 @@
 # HAllucination DEtection dataSet (HADES)
 
-A novel token-level reference-free hallucination detection dataset for free-form text generation.
+A novel token-level reference-free [hallucination detection dataset](https://arxiv.org/pdf/2104.08704) for free-form text generation.
 
 ## Dataset Overview
 
@@ -20,17 +20,45 @@ The actual data will be provide in the json format, for the instance above, we h
 To simulate real-world NLG applications, we propose two sub-tasks with “offline” and “online” settings. In the **offline** setting, it is assumed that generation is complete, so the the model is able perceive the bidirectional context. This could be used in the post-generation examination of NLG systems. For **online** detection, the model can only access the unidirectional preceding context, which simulates on-the-fly generation. 
 
 ### Data Collection
-![alt text](/figs/hallu_overview.pdf)
+![alt text](figs/hallu_overview.png)
 
 
 To collect the HADES dataset, we first perturb “raw text” web data ([WIKI-40B](https://www.aclweb.org/anthology/2020.lrec-1.297/)) into “perturbed text” with out-of-box BERT model. We then ask human annotators to assess whether the perturbed text spans are hallucinations given the original text. We apply effective techniques in the contextual perturbation phase and multi-round human annotation, please refer to the paper for more details.
 
+### Data Statistics
+
+We show the ratio of “hallucination”(H)/ “not hallucination” (N ) cases for different Part-of-Speech (POS) and Name Entity Recognition (NER) tags below:
+
+![alt text](figs/hallu_pie.png)
+
+We split the dataset into train, validation and test sets with sizes of 8754, 1000, 1200 respectively. “hallucination” cases slightly outnumber “not hallucination” cases, with a ratio of 54.5%/45.5%.
+
 ## Baselines
 
-For pretrained models:
+To replicate the baseline detection models reported in the paper. Please run the ```pretrain_clf.py``` and ```feature_clf.py``` in the ```\baselines``` fold with the following instructions.
+
+For pretrained models using BERT-large in the online test mode:
 ```
 python pretrain_clf.py --lr 1e-3 --dropout 0 --task_mode online --load_model bert-large-uncased
 ```
-For feature-based models:
+Likewise, the ```task_mode``` can be ```offline```, and the ```load_model``` can be ```roberta-large```, ```xlnet-large-cased``` and ```gpt2-medium```, which corresponds to the pretrained model baselines in the paper.
 
-TBD.
+
+For feature-based models (can only be used in the offline test mode):
+```
+python feature_clf.py --mode svm
+```
+```mode``` can be ```svm``` or ```lr``` (logistic regression).
+
+## Citation
+
+If you find the data or code in this repo useful, please consider citing the following paper:
+
+```
+@article{liu2021token,
+  title={A Token-level Reference-free Hallucination Detection Benchmark for Free-form Text Generation},
+  author={Liu, Tianyu and Zhang, Yizhe and Brockett, Chris and Mao, Yi and Sui, Zhifang and Chen, Weizhu and Dolan, Bill},
+  journal={arXiv preprint arXiv:2104.08704},
+  year={2021}
+}
+```
