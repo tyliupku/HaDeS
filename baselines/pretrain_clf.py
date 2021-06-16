@@ -42,7 +42,7 @@ class ClfModel(nn.Module):
 
             self.load_model = args.load_model
 
-            if "xlnet" in args.rep_model:
+            if "xlnet" in args.load_model:
                 self.tokenizer = AutoTokenizer.from_pretrained(self.load_model)
                 self.model = XLNetLMHeadModel.from_pretrained(self.load_model, mem_len=1024).to(args.device)
             else:
@@ -66,13 +66,13 @@ class ClfModel(nn.Module):
             self.args = args
 
 
-      def bert_run(self, optim, trainpath="../data_collections/Wiki-Hades/train.txt",
+      def model_run(self, optim, trainpath="../data_collections/Wiki-Hades/train.txt",
                    testpath="../data_collections/Wiki-Hades/test.txt",
                    validpath="../data_collections/Wiki-Hades/valid.txt",
                    epoch=10):
               # testpath="selected_replaced_instance.annotate.finish", epoch=10):
             prefix = "runs/{}_lr_{}_dp_{}_{}_clen{}/".format(self.load_model, self.args.lr,
-                                            self.args.dropout, self.args.task_mode, self.args.clen)
+                                            self.args.dropout, self.args.task_mode, self.args.context_len)
             bestmodelpath = prefix + "best_model.pt"
             epoch_start = 1
             if os.path.exists(bestmodelpath) and self.args.continue_train:
@@ -96,7 +96,7 @@ class ClfModel(nn.Module):
             dp = DataProcessor()
             train_examples = dp.get_examples(trainpath)
 
-            train_dataset = HalluDataset(train_examples, self.tokenizer, self.args.clen,
+            train_dataset = HalluDataset(train_examples, self.tokenizer, self.args.context_len,
                                          self.load_model, self.args.task_mode)
 
             train_dataloader = data.DataLoader(dataset=train_dataset,
@@ -111,7 +111,7 @@ class ClfModel(nn.Module):
 
             '''
             test_examples = dp.get_examples(testpath)
-            test_dataset = HalluDataset(test_examples, self.tokenizer, self.args.clen,
+            test_dataset = HalluDataset(test_examples, self.tokenizer, self.args.context_len,
                                         self.load_model, self.args.task_mode)
             test_dataloader = data.DataLoader(dataset=test_dataset,
                                                batch_size=4,
@@ -120,7 +120,7 @@ class ClfModel(nn.Module):
                                                collate_fn=HalluDataset.pad)
             '''
             valid_examples = dp.get_examples(validpath)
-            valid_dataset = HalluDataset(valid_examples, self.tokenizer, self.args.clen,
+            valid_dataset = HalluDataset(valid_examples, self.tokenizer, self.args.context_len,
                                          self.load_model, self.args.task_mode)
             valid_dataloader = data.DataLoader(dataset=valid_dataset,
                                                batch_size=4,
@@ -131,7 +131,7 @@ class ClfModel(nn.Module):
             normedWeights = torch.FloatTensor(normedWeights).to(self.args.device)
             loss_func = nn.CrossEntropyLoss(weight=normedWeights).to(self.args.device)
 
-            fwd_func = self.bert_train
+            fwd_func = self.model_train
             best_acc, best_f1_score = -1, -1
             for ei in range(epoch_start, epoch+1):
                 cnt = 0
@@ -160,7 +160,7 @@ class ClfModel(nn.Module):
                         print("Training Epoch {} - {}% - {}".format(ei, int(100 * cnt/nTrain), train_loss/cnt))
                 print("Training Epoch {} ...".format(ei))
                 # print(predy)
-                acc, (f1, precision, recall, gmean), (bss, roc_auc, ap_auc), _ = \
+                acc, f1, precision, recall, _, _, _, _, _ = \
                     binary_eval(predy, trainy, return_f1=True, predscore=hallu_sm_score)
                 writer.add_scalar('Loss/train_epoch', train_loss, ei)
                 writer.add_scalar('F1/train_consistent_epoch', f1[0], ei)
@@ -172,7 +172,7 @@ class ClfModel(nn.Module):
                 writer.add_scalar('Acc/train_epoch', acc, ei)
                 print("Train Epoch {} end ! Loss : {}".format(ei, train_loss))
 
-                if ei % 21 == 0:
+                if ei % 5 == 0:
                     savemodel_path = prefix + "model_{}_{}_{}.pt".format(ei, f1[0], f1[1])
                     torch.save(
                     {"model_state_dict": self.state_dict(),
@@ -185,56 +185,8 @@ class ClfModel(nn.Module):
                      savemodel_path)
                     # self.get_model_scores(savemodel_path, epoch=ei)
 
-                storage = []
                 self.eval()
-                predy, testy, hallu_sm_score = [], [], []
-                test_loss = 0
-                for step, batch in enumerate(test_dataloader):
-                    batch = tuple(t.to(self.device) for t in batch[:-1])
-                    input_ids, input_mask, segment_ids, predict_mask, label_ids = batch
-                    score = fwd_func(input_ids, input_mask, segment_ids, predict_mask)
-                    hallu_sm = F.softmax(score, dim=1)[:, 1]
-                    _, pred = torch.max(score, dim=1)
-                    testy.extend(label_ids.tolist())
-                    predy.extend(pred.tolist())
-                    hallu_sm_score.extend(hallu_sm.tolist())
-                    loss = loss_func(score, label_ids)
-                    test_loss += loss.item()
-                print("Testing Epoch {} ...".format(ei))
-
-                acc, (f1, precision, recall, gmean), (bss, roc_auc, ap_auc), info = \
-                    binary_eval(predy, testy, return_f1=True, predscore=hallu_sm_score)
-                writer.add_scalar('Loss/test_epoch', test_loss, ei)
-                writer.add_scalar('F1/test_consistent_epoch', f1[0], ei)
-                writer.add_scalar('Precision/test_consistent_epoch', precision[0], ei)
-                writer.add_scalar('Recall/test_consistent_epoch', recall[0], ei)
-                writer.add_scalar('F1/test_hallucination_epoch', f1[1], ei)
-                writer.add_scalar('Precision/test_hallucination_epoch', precision[1], ei)
-                writer.add_scalar('Recall/test_hallucination_epoch', recall[1], ei)
-                writer.add_scalar('Acc/test_epoch', acc, ei)
-
-                csvfile = open(csvlogger, 'a')
-                csvwrite = csv.writer(csvfile)
-                rowdata = [ei, precision[1], recall[1], f1[1], gmean[1], precision[0], recall[0], f1[0], gmean[0],\
-                            acc, bss, roc_auc, ap_auc]
-                rowdata = [str(f) for f in rowdata]
-                csvwrite.writerow(rowdata)
-                txtwriter.write("Epoch {}\n".format(ei) + info + "\n\n")
-
-                f1_score = f1[0] + f1[0]
-                if f1_score > best_f1_score:
-                    best_f1_score = f1_score
-                    torch.save({"model_state_dict": self.state_dict(),
-                                "optim_state_dict": optim.state_dict(),
-                                "test_f1": f1,
-                                "test_precision": precision,
-                                "test_recall": recall,
-                                "test_acc": acc,
-                                "epoch": epoch},
-                                prefix + "best_model.pt")
-
-                self.eval()
-                predy, testy, hallu_sm_score = [], [], []
+                predy, validy, hallu_sm_score = [], [], []
                 valid_loss = 0
                 for step, batch in enumerate(valid_dataloader):
                     batch = tuple(t.to(self.device) for t in batch[:-1])
@@ -242,103 +194,63 @@ class ClfModel(nn.Module):
                     score = fwd_func(input_ids, input_mask, segment_ids, predict_mask)
                     hallu_sm = F.softmax(score, dim=1)[:, 1]
                     _, pred = torch.max(score, dim=1)
-                    testy.extend(label_ids.tolist())
+                    validy.extend(label_ids.tolist())
                     predy.extend(pred.tolist())
                     hallu_sm_score.extend(hallu_sm.tolist())
                     loss = loss_func(score, label_ids)
                     valid_loss += loss.item()
                 print("Valid Epoch {} ...".format(ei))
 
-                acc, (f1, precision, recall, gmean), (bss, roc_auc, ap_auc), info = \
-                    binary_eval(predy, testy, return_f1=True, predscore=hallu_sm_score)
-                vtxtwriter.write("Epoch {}\n".format(ei) + info + "\n\n")
+                acc, f1, precision, recall, gmean, bss, roc_auc, info = \
+                    binary_eval(predy, validy, return_f1=True, predscore=hallu_sm_score)
+                writer.add_scalar('Loss/valid_epoch', valid_loss, ei)
+                writer.add_scalar('F1/valid_consistent_epoch', f1[0], ei)
+                writer.add_scalar('Precision/valid_consistent_epoch', precision[0], ei)
+                writer.add_scalar('Recall/valid_consistent_epoch', recall[0], ei)
+                writer.add_scalar('F1/valid_hallucination_epoch', f1[1], ei)
+                writer.add_scalar('Precision/valid_hallucination_epoch', precision[1], ei)
+                writer.add_scalar('Recall/valid_hallucination_epoch', recall[1], ei)
+                writer.add_scalar('Acc/valid_epoch', acc, ei)
 
-                if acc > best_acc:
-                    best_acc = acc
-                    storage = sorted(storage, key=lambda x:-x[1])
-                    fw = codecs.open("200cases_from_model.json", "w+", encoding="utf-8")
-                    cnt = 1
-                    for i in range(len(storage)):
-                        example = storage[i][-1]
-                        example["score"] = storage[i][1]
-                        if "UNK" in example["replaced"]:
-                            continue
-                        example["sample_from"] = "bert_large_confidence"
-                        fw.write(json.dumps(example)+"\n")
-                        if cnt > 200:
-                            break
-                        cnt += 1
+                rowdata = [ei, precision[1], recall[1], f1[1], precision[0], recall[0], f1[0], gmean,\
+                            acc, bss, roc_auc]
+                rowdata = [str(f) for f in rowdata]
+                csvwriter.writerow(rowdata)
+
+                f1_score = f1[0] + f1[1]
+                if f1_score > best_f1_score:
+                    best_f1_score = f1_score
+                    torch.save({"model_state_dict": self.state_dict(),
+                                "optim_state_dict": optim.state_dict(),
+                                "valid_f1": f1,
+                                "valid_precision": precision,
+                                "valid_recall": recall,
+                                "valid_acc": acc,
+                                "epoch": epoch},
+                                prefix + "best_model.pt")
 
 
-      def bert_train(self, input_ids, input_mask, segment_ids, predict_mask):
-            model = self.rep_model
 
-            if self.load_model == "distillbert":
-                prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-                # print(hidden_states.size())
-            elif "deberta" in self.load_model:
-                hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-            elif "xlnet" in self.load_model:
-                _, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
+      def model_train(self, input_ids, input_mask, segment_ids, predict_mask):
+
+            if "xlnet" in self.load_model:
+                _, hidden_states = self.model(input_ids=input_ids, attention_mask=input_mask)
                 hidden_states = [h.transpose(0, 1) for h in hidden_states]
             elif "gpt" in self.load_model:
-                _, _, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
+                _, _, hidden_states = self.model(input_ids=input_ids, attention_mask=input_mask)
             else:
-                prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-                # predictions = model(input_ids=input_ids, attention_mask=input_mask)
-                # show_output_size(predictions)
-            # print("predict_mask {}".format(predict_mask.size()))
-            # for i, h in enumerate(hidden_states):
-            #     print("{} : {}".format(i, h.size()))
-            '''
-            print(hidden_states[0].size())
-            # print(predict_mask.size())
-            print("{} hidden_states {}".format(len(hidden_states), hidden_states[-1].size()))
-            '''
-            features = hidden_states if "deberta" in self.load_model else hidden_states[-1]
-            # show_output_size(features)
+                prediction_scores, hidden_states = self.model(input_ids=input_ids, attention_mask=input_mask)
+
+            features = hidden_states[self.layer]
             state = features * predict_mask.unsqueeze(-1)
-            predict_len = predict_mask.sum(1)
-            # print("state {}".format(state.size()))
-            '''
-            print(rep_sen)
-            print(rep_subtokens)
-            print(rep_subtokens[rep_mask_start_id:rep_mask_end_id])
-            print((rep_mask_start_id, rep_mask_end_id))
-            '''
-            # maxpool_state = torch.max(hidden_states[-1][0][rep_mask_start_id:rep_mask_end_id], dim=0)[0]
-            meanpool_state = 1.0 * torch.max(state, dim=1)[0]
-            meanpool_state = self.dropout(meanpool_state)
-            # print(meanpool_state)
-            # print(maxpool_state)
-            # print("maxpool_state {}".format(meanpool_state.size()))
-            score = self.hidden2label(meanpool_state)
-            # print("score {}".format(score.size()))
+
+            maxpool_state = 1.0 * torch.max(state, dim=1)[0]
+            maxpool_state = self.dropout(maxpool_state)
+            score = self.hidden2label(maxpool_state)
+
             return score
 
-      def bert_score(self, input_ids, input_mask, segment_ids, predict_mask):
-            model = self.rep_model
 
-            prediction_scores, hidden_states = model(input_ids=input_ids, attention_mask=input_mask)
-            features = hidden_states if "deberta" in self.load_model else hidden_states[-1]
-            state = features * predict_mask.unsqueeze(-1)
-            predict_len = predict_mask.sum(1)
-            # print("state {}".format(state.size()))
-            '''
-            print(rep_sen)
-            print(rep_subtokens)
-            print(rep_subtokens[rep_mask_start_id:rep_mask_end_id])
-            print((rep_mask_start_id, rep_mask_end_id))
-            '''
-            # maxpool_state = torch.max(hidden_states[-1][0][rep_mask_start_id:rep_mask_end_id], dim=0)[0]
-            meanpool_state = 1.0 * torch.max(state, dim=1)[0]
-            meanpool_state = self.dropout(meanpool_state)
-            # print(meanpool_state)
-            # print(maxpool_state)
-            # print("maxpool_state {}".format(meanpool_state.size()))
-            score = self.hidden2label(meanpool_state)
-            # print("score {}".format(score.size()))
-            return score
 
 
 
@@ -349,89 +261,36 @@ if __name__ == '__main__':
     parser.add_argument("--lr", default=1e-5, type=float)
     parser.add_argument("--dropout", default=0.2, type=float)
     parser.add_argument("--continue_train", action="store_true")
-    parser.add_argument("--save_name", default="model", type=str)
-    parser.add_argument("--mode", default=1, type=int)
     parser.add_argument("--task_mode", default="offline", type=str)
-    parser.add_argument("--clen", default=200, type=int)
-
-
-    parser.add_argument("--bert_layer", default=10, type=int)
-    parser.add_argument("--bert_mask", action="store_true")
+    parser.add_argument("--context_len", default=200, type=int) # context length
+    parser.add_argument("--bert_layer", default=-1, type=int)
     parser.add_argument("--num_epoch", default=20, type=int)
-    parser.add_argument("--params", default="map", type=str)
-
-    parser.add_argument("--load_ft_gpt", action="store_true")
-    parser.add_argument("--finetune_from", default="../finetune_learn/output", type=str)
-    parser.add_argument("--rep_model", default="bert", type=str)
-
-    parser.add_argument("--context_len", default=1, type=int)
-    parser.add_argument("--replace_ratio", default=0.6, type=float)
-    parser.add_argument("--temperature", default=1.0, type=float)
+    parser.add_argument("--params", default="frozen", type=str)
     parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--min_replace_time", default=0, type=int)
-    parser.add_argument("--sample_num", default=1, type=int)
-    parser.add_argument("--context_limit", default=0, type=int)
-    parser.add_argument("--mode_name", default="len-fix", type=str)
-    parser.add_argument("--rank_model", default="gpt2", type=str)
-    parser.add_argument("--ignore_oracle", action="store_true")
-    parser.add_argument("--parallel_decoding", action="store_true")
-    parser.add_argument("--mask_before_replacement", action="store_true")
+
     args = parser.parse_args()
 
-    # ppmi = get_ppmi_matrix()
-    # print(ppmi.columns)
-    # print(len(ppmi.columns))
-    rep_op = ClfModel(args)
-
-    # rep_op.feature_analysis()
-    # rep_op.svm()
-    # rep_op.run(path="selected_replaced_instance.annotate.finish")
+    model = ClfModel(args)
 
     learning_rate0 = args.lr
     weight_decay_finetune = 1e-5
 
     if "all" in args.params:
-        named_params = list(rep_op.hidden2label.named_parameters()) + \
-                       list(rep_op.rep_model.named_parameters())
+        named_params = list(model.hidden2label.named_parameters()) + \
+                       list(model.rep_model.named_parameters())
     else:
-        named_params = list(rep_op.hidden2label.named_parameters())
+        named_params = list(model.hidden2label.named_parameters())
 
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in named_params if not any(nd in n for nd in no_decay)], 'weight_decay': weight_decay_finetune},
         {'params': [p for n, p in named_params if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
-    optim_func = torch.optim.Adam if "gpt" in args.rep_model else BertAdam
+    optim_func = torch.optim.Adam if "gpt" in args.load_model else BertAdam
     optimizer = optim_func(optimizer_grouped_parameters, lr=learning_rate0)
 
-    # rep_op.get_model_scores("runs/unmask_unbalance_bert_lr_0.0005_dp0.0/model.pt")
-    # rep_op.get_model_scores("runs/unmask_downsample_bert_lr_0.0005_dp0.0/model.pt")
-    # rep_op.get_model_scores("runs/unmask_enrich_bert_lr_0.0005_dp0.0/model.pt")
-    # rep_op = nn.DataParallel(rep_op)
 
-    # rep_op.get_model_scores("runs/datam4424_lr_0.005_dp0.2/model_10_0.5865698729582577_0.8130641720006565.pt",
-    #     unannotatedpath="../data_preparation/wikin10k+sequential+topk_10+temp_1+context_1+rep_0.6+sample_1.annotate")
-
-    if args.test_gpt3:
-        sen = "brooks left philadelphia for european waters 26 august 1920 . she was first assigned to the baltic patrol for a short time and then the naval forces in the adriatic sea . she was assigned to the italian fleet in the mediterranean in 1921 and remained there until the end of the year ."
-        rep_op.sent_hallu_vis(sen)
-    else:
-        try:
-            rep_op.bert_run(optimizer, epoch=args.num_epoch)
-        except KeyboardInterrupt:
-            print("Stop by Ctrl-C ...")
-        # rep_op.get_model_scores("runs/{}_lr_{}_dp{}/best_model.pt".format(args.name, args.lr, args.dropout))
-
-    '''
-    # Balanced dataset by downsampling Hallucination Instances
-    rep_op.bert_run(optimizer, trainpath="../human_annotation/uhrs_src/data_merge_plus_tianyu_annotate_balance.txt",
-        testpath="../data_collections/selected_replaced_instance.annotate.finish",
-        epoch=args.num_epoch)
-    '''
-
-    '''
-    # Balanced dataset by upsampling Consistent Instances
-    rep_op.bert_run(optimizer, trainpath="../human_annotation/uhrs_src/data_merge_plus_tianyu_annotate_enrich_balance.txt",
-        testpath="../data_collections/selected_replaced_instance.annotate.finish",
-        epoch=args.num_epoch)
-    '''
+    try:
+        model.model_run(optimizer, epoch=args.num_epoch)
+    except KeyboardInterrupt:
+        print("Stop by Ctrl-C ...")
