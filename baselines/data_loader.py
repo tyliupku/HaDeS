@@ -118,7 +118,7 @@ def truncate(rep_subtokens, predict_mask, max_seq_length, rep_start_id, rep_end_
     return rep_subtokens, predict_mask
 
 
-def example2feature(example, tokenizer, max_seq_length, model_name, bert_mask=False, mode="offline"):
+def example2feature(example, tokenizer, max_seq_length, model_name, mode="offline"):
     rep_start_id, rep_end_id = example.idxs
     rep_tokens = remove_marked_sen(example.sen, rep_start_id, rep_end_id)
 
