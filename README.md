@@ -1,6 +1,6 @@
 # HAllucination DEtection dataSet (HADES)
 
-A novel token-level reference-free [hallucination detection dataset](https://arxiv.org/pdf/2104.08704) for free-form text generation.
+A novel token-level reference-free [hallucination detection dataset](https://arxiv.org/pdf/2104.08704) for free-form text generation. The code implementation is based on [huggingface transformers](https://github.com/huggingface/transformers).
 
 ## Dataset Overview
 
@@ -35,11 +35,22 @@ We split the dataset into train, validation and test sets with sizes of 8754, 10
 
 ## Baselines
 
-To replicate the baseline detection models reported in the paper. Please run the ```pretrain_clf.py``` and ```feature_clf.py``` in the ```\baselines``` fold with the following instructions.
+### Environment
+
+To replicate the baseline detection models reported in the paper. We provide the Anaconda environment. To start the environment, please run
+
+```
+conda env create -f hades.yaml
+pip install -r requirements.txt
+```
+
+### Training
+
+Please run the ```pretrain_clf.py``` and ```feature_clf.py``` in the ```\baselines``` fold with the following instructions.
 
 For pretrained models using BERT-large in the online test mode:
 ```
-python pretrain_clf.py --lr 1e-3 --dropout 0 --task_mode online --load_model bert-large-uncased
+python pretrain_clf.py --lr 1e-3 --dropout 0 --task_mode online --load_model bert-large-uncased 
 ```
 Likewise, the ```task_mode``` can be ```offline```, and the ```load_model``` can be ```roberta-large```, ```xlnet-large-cased``` and ```gpt2-medium```, which corresponds to the pretrained model baselines in the paper.
 
@@ -49,6 +60,27 @@ For feature-based models (can only be used in the offline test mode):
 python feature_clf.py --mode svm
 ```
 ```mode``` can be ```svm``` (support vector machine) or ```lr``` (logistic regression). The features we use include word probability, TF-IDF, PPMI and word entrophy.
+
+### Evaluation
+
+To evaluate the hallucination detector, taking ```bert-large-uncased``` in the ```offline``` setting as an example
+
+```
+python pretrain_clf.py --task_mode offline --load_model bert-large-uncased --inf_model path_to_model/best_model.pt --inf_data ../data_collections/Wiki-Hades/valid.txt
+```
+
+We provide the related detecting model (```bert-large-uncased```, ```offline``` ) [here](). If running correctly, the system should output results (note that the following numbers are model performance on the valid set) as in below:
+
+```
+Acc : 0.709
+f1 : 0.7408726625111309 0.6681870011402509
+precision : 0.6819672131147541 0.7512820512820513
+recall : 0.8109161793372319 0.6016427104722792
+G-mean : 0.6984853671214227
+bss : 0.18964858912275
+ROC-AUC : 0.778624350060641
+```
+
 
 ## Citation
 
