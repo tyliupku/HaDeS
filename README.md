@@ -37,7 +37,7 @@ We split the dataset into train, validation and test sets with sizes of 8754, 10
 
 ### Environment
 
-To replicate the baseline detection models reported in the paper. We provide the Anaconda environment. To start the environment, please run
+To replicate the baseline detection models reported in the paper. We provide the Anaconda environment script. To start the environment, please run
 
 ```
 conda env create -f hades.yaml
