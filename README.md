@@ -69,7 +69,7 @@ To evaluate the hallucination detector, taking ```bert-large-uncased``` in the `
 python pretrain_clf.py --task_mode offline --load_model bert-large-uncased --inf_model path_to_model/best_model.pt --inf_data ../data_collections/Wiki-Hades/valid.txt
 ```
 
-We provide the related detecting model (```bert-large-uncased```, ```offline``` ) [here](). If running correctly, the system should output results (note that the following numbers are model performance on the valid set) as in below:
+We provide the related detecting model (```bert-large-uncased```, ```offline``` ) [here](https://drive.google.com/file/d/1bhTV6fndQo-ZYnMODwPcDjPOmxsIDSQC/view?usp=sharing). If running correctly, the system should output results (note that the following numbers are model performance on the valid set) as in below:
 
 ```
 Acc : 0.709
