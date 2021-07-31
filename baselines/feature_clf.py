@@ -73,7 +73,7 @@ def get_ppmi_matrix(voc, path="../data_collections/Wiki-Hades/train.txt"):
     with codecs.open(path, "r", encoding="utf-8") as fr:
         for line in fr:
             example = json.loads(line.strip())
-            tgt, tgt_ids = example["input"], example["target_ids"]
+            tgt, tgt_ids = example["replaced"], example["replaced_ids"]
             sen = remove_marked_sen(tgt, tgt_ids[0], tgt_ids[1])
             corpus.append(sen)
 
@@ -89,7 +89,7 @@ def get_idf_matrix(path="../data_collections/Wiki-Hades/train.txt"):
     with codecs.open(path, "r", encoding="utf-8") as fr:
         for line in fr:
             example = json.loads(line.strip())
-            tgt, tgt_ids = example["input"], example["target_ids"]
+            tgt, tgt_ids = example["replaced"], example["replaced_ids"]
             sen = remove_marked_sen(tgt, tgt_ids[0], tgt_ids[1])
             corpus.append(" ".join(sen))
 
@@ -248,9 +248,9 @@ class ClfModel:
                     example = json.loads(line.strip())
                     label = example["hallucination"]
                     if label == 2: continue
-                    avgscore, maxscore, _, avgentro, maxentro, _ = encode_func(example["input"], example["target_ids"])
-                    avgtfidf, maxtfidf, _ = self.get_tfidf_features(example["input"], example["target_ids"])
-                    avgppmi, maxppmi, _ = self.get_ppmi_features(example["input"], example["target_ids"])
+                    avgscore, maxscore, _, avgentro, maxentro, _ = encode_func(example["replaced"], example["replaced_ids"])
+                    avgtfidf, maxtfidf, _ = self.get_tfidf_features(example["replaced"], example["replaced_ids"])
+                    avgppmi, maxppmi, _ = self.get_ppmi_features(example["replaced"], example["replaced_ids"])
                     features = [avgscore, avgentro, avgtfidf, avgppmi,
                                 maxscore, maxentro, maxtfidf, maxppmi]
 
@@ -268,9 +268,9 @@ class ClfModel:
                     example = json.loads(line.strip())
                     label = example["hallucination"]
                     if label == 2: continue
-                    avgscore, maxscore, _, avgentro, maxentro, _ = encode_func(example["input"], example["target_ids"])
-                    avgtfidf, maxtfidf, _ = self.get_tfidf_features(example["input"], example["target_ids"])
-                    avgppmi, maxppmi, _ = self.get_ppmi_features(example["input"], example["target_ids"])
+                    avgscore, maxscore, _, avgentro, maxentro, _ = encode_func(example["replaced"], example["replaced_ids"])
+                    avgtfidf, maxtfidf, _ = self.get_tfidf_features(example["replaced"], example["replaced_ids"])
+                    avgppmi, maxppmi, _ = self.get_ppmi_features(example["replaced"], example["replaced_ids"])
                     features = [avgscore, avgentro, avgtfidf, avgppmi,
                                 maxscore, maxentro, maxtfidf, maxppmi]
 
