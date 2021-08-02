@@ -139,6 +139,7 @@ class ClfModel:
                 self.word_ppmi = word_ppmi
             self.args = args
             self.device = args.device
+            self.model = args.model
             self.rep_model = AutoModelWithLMHead.from_pretrained("bert-base-uncased").to(self.device)
             self.rep_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
             if "svm" in self.model:
@@ -148,8 +149,8 @@ class ClfModel:
                                          SGDClassifier(loss="log", max_iter=10000, tol=1e-5))
 
       def get_ppmi_features(self, rep_sen, rep_ids):
-            rep_tokens = remove_marked_sen(rep_sen)
             rep_start_id, rep_end_id = rep_ids
+            rep_tokens = remove_marked_sen(rep_sen, rep_start_id, rep_end_id)
 
             max_ppmi, mean_ppmi, min_ppmi = [], [], []
             for idx in range(rep_start_id, rep_end_id+1):
@@ -171,8 +172,8 @@ class ClfModel:
             return sum(mean_ppmi) / len(mean_ppmi), sum(max_ppmi) / len(max_ppmi), sum(min_ppmi) / len(min_ppmi)
 
       def get_tfidf_features(self, rep_sen, rep_ids):
-            rep_tokens = remove_marked_sen(rep_sen)
             rep_start_id, rep_end_id = rep_ids
+            rep_tokens = remove_marked_sen(rep_sen, rep_start_id, rep_end_id)
 
             #  TF-IDF features
             tf_dic = dict()
@@ -194,8 +195,8 @@ class ClfModel:
             return tfidf_mean, tfidf_max, tfidf_min
 
       def encode_bert(self, rep_sen, rep_ids):
-            rep_tokens = remove_marked_sen(rep_sen)
             rep_start_id, rep_end_id = rep_ids
+            rep_tokens = remove_marked_sen(rep_sen, rep_start_id, rep_end_id)
             #  Prob, Entropy features
             rep_subtokens = ["[CLS]"]
             tokenizer = self.rep_tokenizer
@@ -318,6 +319,7 @@ class ClfModel:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="svm", type=str) # svm or lr
+    parser.add_argument("--device", default="cuda", type=str)
 
     args = parser.parse_args()
 
