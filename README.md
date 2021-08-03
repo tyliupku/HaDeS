@@ -1,8 +1,12 @@
 # HAllucination DEtection dataSet (HADES)
 
 A novel token-level reference-free [hallucination detection dataset](https://arxiv.org/pdf/2104.08704) for free-form text generation. The code implementation is based on [huggingface transformers](https://github.com/huggingface/transformers).
-
 ## Dataset Overview
+
+### Download
+
+The dataset can be downloaded [here](https://drive.google.com/file/d/1dM8gWCwh0UABV5I42xLNeFuxGK8zOuVB/view?usp=sharinghttps://drive.google.com/file/d/1dM8gWCwh0UABV5I42xLNeFuxGK8zOuVB/view?usp=sharing). Please unzip the downloaded "Wiki-Hades.zip" inside the "data_collections" folder.
+
 
 ### Format
 
@@ -13,7 +17,7 @@ Given an input sentence and target words (spans), decide if the target is halluc
 > Label: **funeral** -> Hallucination
 
 The actual data will be provide in the json format, for the instance above, we have:
-> {"input": "... She had a large family and live with her grandparents ... In 1933 she gave birth to her first child ... In July of 1926, many of her friends attended her ===funeral=== ...", "target_ids": [69, 69], "hallucination": 1} 
+> {"replaced": "... She had a large family and live with her grandparents ... In 1933 she gave birth to her first child ... In July of 1926, many of her friends attended her ===funeral=== ...", "replaced_ids": [69, 69], "hallucination": 1} 
 
 ### Test Mode
 
