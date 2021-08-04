@@ -45,6 +45,7 @@ To replicate the baseline detection models reported in the paper. We provide the
 
 ```
 conda env create -f hades.yaml
+conda activate hades
 pip install -r requirements.txt
 ```
 
